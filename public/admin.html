@@ -21,6 +21,8 @@ button{background:#10b985;color:#fff;border:none;font-weight:bold;cursor:pointer
 .form-row input{flex:1;margin:0;}
 .online{color:#10b985;font-weight:bold;}
 .offline{color:#999;}
+.act-yes{color:#10b985;}
+.act-no{color:#999;}
 
 .copy-btn{
   background: #3b82f6;
@@ -32,6 +34,8 @@ button{background:#10b985;color:#fff;border:none;font-weight:bold;cursor:pointer
   cursor:pointer;
   margin:2px;
 }
+.reset-btn{background:#f59e0b;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;margin:2px;}
+.kick-btn{background:#8b5cf6;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;margin:2px;}
 
 /* 顶部小按钮栏 */
 .top-bar {
@@ -250,6 +254,42 @@ async function editUserExpire() {
   } catch(e) { alert('网络错误'); }
 }
 
+// 新增：重置换绑次数
+async function resetDeviceTimes(username){
+  if(!confirm('确定重置该用户换绑次数为1次？')) return;
+  try{
+    const res = await fetch(BASE_API + '/api/admin/reset-device-times',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username})
+    });
+    const d = await res.json();
+    if(d.ok){
+      alert('重置成功');
+      loadList();
+    }else{
+      alert('重置失败');
+    }
+  }catch(e){alert('网络错误');}
+}
+
+// 新增：强制下线
+async function forceLogout(username){
+  if(!confirm('确定强制该用户下线？')) return;
+  try{
+    const res = await fetch(BASE_API + '/api/admin/force-logout',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username})
+    });
+    const d = await res.json();
+    if(d.ok){
+      alert('已强制下线');
+      loadList();
+    }
+  }catch(e){alert('网络错误');}
+}
+
 // 单个添加
 async function addSingleUser() {
   const user = document.getElementById('singleUser').value.trim();
@@ -308,15 +348,22 @@ function renderList() {
   const kw = document.getElementById('search').value.toLowerCase();
   const f = all.filter(x => x.username.toLowerCase().includes(kw));
   let html = `<table class="table">
-  <tr><th>账号</th><th>密码</th><th>在线</th><th>创建时间</th><th>到期时间</th><th>状态</th><th>操作</th></tr>`;
+  <tr>
+    <th>账号</th><th>密码</th><th>在线</th><th>激活状态</th><th>剩余换绑</th><th>创建时间</th><th>到期时间</th><th>状态</th><th>操作</th>
+  </tr>`;
   for(const u of f){
     const on = u.token ? '在线' : '离线';
     const cn = u.token ? 'online' : 'offline';
     const exp = u.expireAt ? new Date(u.expireAt).toLocaleString() : '永久';
+    const activeTxt = u.activeTime ? '<span class="act-yes">已激活</span>' : '<span class="act-no">未激活</span>';
+    const resetTimes = u.changeDeviceTimes ?? 1;
+
     html += `<tr>
       <td>${u.username}</td>
       <td>${u.password}</td>
       <td class="${cn}">${on}</td>
+      <td>${activeTxt}</td>
+      <td>${resetTimes}次</td>
       <td>${new Date(u.createdAt).toLocaleString()}</td>
       <td>${exp}</td>
       <td>${u.enabled?'启用':'禁用'}</td>
@@ -325,6 +372,8 @@ function renderList() {
         <button style="padding:4px;font-size:12px" onclick="toggle('${u.username}',${!u.enabled})">
           ${u.enabled?'禁用':'启用'}
         </button>
+        <button class="reset-btn" onclick="resetDeviceTimes('${u.username}')">重置换绑</button>
+        <button class="kick-btn" onclick="forceLogout('${u.username}')">强制下线</button>
         <button class="red" style="padding:4px;font-size:12px" onclick="del('${u.username}')">删除</button>
       </td>
     </tr>`;
