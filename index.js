@@ -39,12 +39,11 @@ function now() {
 function genToken() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
-// 生成会话ID
 function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// 普通用户登录【原有逻辑完全保留，只追加激活+设备绑定+会话】
+// ========== 核心改造：登录接口 ==========
 app.post('/api/login', (req, res) => {
   const { username, password, device_fp } = req.body;
   const db = readDB();
@@ -54,41 +53,44 @@ app.post('/api/login', (req, res) => {
   if (user.password !== password) return res.json({ ok: false, msg: '密码错误' });
   if (!user.enabled) return res.json({ ok: false, msg: '账号已禁用' });
 
-  const nowTs = Date.now();
-  if (user.expireAt) {
-    const expTs = new Date(user.expireAt).getTime();
-    if (nowTs > expTs) return res.json({ ok: false, msg: '账号已过期' });
-  }
-
-  // === 新增：兼容旧数据，初始化新增字段 ===
+  // 兼容旧数据
   if(user.activeTime === undefined) user.activeTime = null;
   if(user.deviceFp === undefined) user.deviceFp = "";
   if(user.changeDeviceTimes === undefined) user.changeDeviceTimes = 1;
   if(user.sessionId === undefined) user.sessionId = "";
+  if(user.days === undefined) user.days = null;
 
-  // 1. 首次登录：激活账号，开始计时
+  // 1. 未激活：按 days 存的天数，从本次登录开始算有效期
   if(!user.activeTime){
     user.activeTime = now();
+    if(user.days && user.days > 0){
+      user.expireAt = new Date(Date.now() + user.days * 86400000).toISOString();
+    }
   }
 
-  // 2. 设备绑定判断
+  // 2. 已激活，检查是否过期
+  if(user.expireAt && Date.now() > new Date(user.expireAt).getTime()){
+    return res.json({ ok: false, msg: '账号已过期' });
+  }
+
+  // 3. 设备锁定核心：只允许绑定1个设备
   if(user.deviceFp && user.deviceFp !== device_fp){
-    // 已绑定设备，且不匹配
+    // 设备不匹配，检查换绑次数
     if(user.changeDeviceTimes <= 0){
-      return res.json({ ok: false, msg: '设备已锁定，请联系管理员解锁换绑次数' });
+      return res.json({ ok: false, msg: '设备已锁定，请联系管理员解锁' });
     }else{
-      // 消耗一次换绑次数，重新绑定新设备
+      // 消耗次数，重新绑定新设备
       user.changeDeviceTimes -= 1;
       user.deviceFp = device_fp;
     }
   }
 
-  // 3. 首次绑定设备
+  // 4. 首次绑定设备
   if(!user.deviceFp){
     user.deviceFp = device_fp;
   }
 
-  // 4. 异地互踢：生成新会话，覆盖旧会话
+  // 5. 异地互踢：生成新会话，覆盖旧会话
   const token = genToken();
   const sessionId = genSessionId();
   user.token = token;
@@ -108,7 +110,7 @@ app.post('/api/check', (req, res) => {
   res.json({ ok: true });
 });
 
-// === 新增：前台权限校验接口（设备/过期/互踢） ===
+// ========== 新增：前台权限校验接口（设备/过期/互踢） ==========
 app.post('/api/check-auth', (req, res) => {
   const { username, device_fp } = req.body;
   const db = readDB();
@@ -118,7 +120,11 @@ app.post('/api/check-auth', (req, res) => {
   if(!user || !user.enabled){
     return res.json({ code: -99, msg: '账号不可用' });
   }
-  // 已过期
+  // 未激活，直接允许登录（不扣时间）
+  if(!user.activeTime){
+    return res.json({ code: 0, msg: '未激活' });
+  }
+  // 已激活，检查过期
   if(user.expireAt && Date.now() > new Date(user.expireAt).getTime()){
     return res.json({ code: -1, msg: '账号已过期' });
   }
@@ -130,18 +136,19 @@ app.post('/api/check-auth', (req, res) => {
   return res.json({ code: 0, msg: '验证通过' });
 });
 
-// === 新增：管理员接口 - 重置换绑次数 ===
+// ========== 新增：管理员接口 - 重置换绑次数 ==========
 app.post('/api/admin/reset-device-times', (req, res) => {
   const { username } = req.body;
   const db = readDB();
   const user = db.find(x => x.username === username);
   if(!user) return res.json({ ok:false, msg:'用户不存在' });
+  // 重置为1次，允许用户换绑一次新设备
   user.changeDeviceTimes = 1;
   writeDB(db);
   res.json({ ok:true });
 });
 
-// === 新增：管理员接口 - 强制下线用户 ===
+// ========== 新增：管理员接口 - 强制下线用户 ==========
 app.post('/api/admin/force-logout', (req, res) => {
   const { username } = req.body;
   const db = readDB();
@@ -154,7 +161,7 @@ app.post('/api/admin/force-logout', (req, res) => {
   res.json({ ok:true });
 });
 
-// 管理员后台【原有全部保留】
+// ========== 管理员后台 ==========
 app.post('/api/admin/login', (req, res) => {
   const { user, pwd } = req.body;
   if (user === admin.user && pwd === admin.pwd) return res.json({ ok: true });
@@ -169,6 +176,7 @@ app.get('/api/admin/list', (req, res) => {
     if(item.deviceFp === undefined) item.deviceFp = "";
     if(item.changeDeviceTimes === undefined) item.changeDeviceTimes = 1;
     if(item.sessionId === undefined) item.sessionId = "";
+    if(item.days === undefined) item.days = null;
   });
   writeDB(db);
   res.json(db);
@@ -193,6 +201,7 @@ app.post('/api/admin/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== 核心改造：批量添加用户 ==========
 app.post('/api/admin/batch', (req, res) => {
   const { lines, days } = req.body;
   const db = readDB();
@@ -204,21 +213,19 @@ app.post('/api/admin/batch', (req, res) => {
     if (!user || !pwd) continue;
     if (db.some(x => x.username === user)) { exist++; continue; }
 
-    const expire = days > 0
-      ? new Date(Date.now() + days * 86400000).toISOString()
-      : null;
-
+    // 关键：只存天数，不写死到期时间！
     db.push({
       username: user,
       password: pwd,
       enabled: true,
       createdAt: now(),
-      expireAt: expire,
+      expireAt: null,
       token: null,
       activeTime: null,
       deviceFp: "",
       changeDeviceTimes: 1,
-      sessionId: null
+      sessionId: null,
+      days: days > 0 ? days : null
     });
     success++;
   }
@@ -234,6 +241,7 @@ app.post('/api/admin/set-user-pwd', (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== 核心改造：设置有效期 ==========
 app.post('/api/admin/set-expire', (req, res) => {
   const { username, days } = req.body;
   const db = readDB();
@@ -241,16 +249,21 @@ app.post('/api/admin/set-expire', (req, res) => {
   if (!user) return res.json({ ok: false, msg: "用户不存在" });
 
   if (days <= 0) {
+    user.days = null;
     user.expireAt = null;
   } else {
-    user.expireAt = new Date(Date.now() + days * 86400 * 1000).toISOString();
+    user.days = days;
+    // 如果用户已激活，直接更新到期时间
+    if(user.activeTime){
+      user.expireAt = new Date(Date.now() + days * 86400 * 1000).toISOString();
+    }
   }
 
   writeDB(db);
   res.json({ ok: true });
 });
 
-// ====================== 新增：TikTok 数据中转接口【原样保留】 ======================
+// ====================== TikTok 数据中转接口 ======================
 app.get('/api/tiktok-user', async (req, res) => {
   try {
     const { unique_id } = req.query;
@@ -267,7 +280,7 @@ app.get('/api/tiktok-user', async (req, res) => {
   }
 });
 
-// 双向保活：前端 + 后端自身 双保活，杜绝Render休眠
+// 双向保活
 const keepAliveList = [
   "https://wallet-project-30bq.onrender.com/",
   "https://tiktok-data-acquisitio.onrender.com"
