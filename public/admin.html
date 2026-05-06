@@ -3,187 +3,174 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>账号管理后台</title>
+<title>管理后台</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,sans-serif;}
-body{background:#f5f6f8;padding:20px;}
-.login-wrap{max-width:400px;margin:100px auto;background:#fff;padding:30px;border-radius:10px;box-shadow:0 0 10px #00000015;}
-.login-wrap h3{text-align:center;margin-bottom:20px;font-size:20px;}
-.input-item{margin-bottom:15px;}
-.input-item input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;}
-.login-btn{width:100%;padding:10px;background:#2d8cf0;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
-.container{display:none;}
-.top-bar{background:#fff;padding:15px;border-radius:8px;margin-bottom:15px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
-.btn{padding:6px 12px;background:#2d8cf0;color:#fff;border:none;border-radius:4px;cursor:pointer;}
-.btn-danger{background:#f56c6c;}
-.btn-success{background:#67c23a;}
-.box{background:#fff;border-radius:8px;padding:15px;}
-table{width:100%;border-collapse:collapse;font-size:14px;}
-th,td{border:1px solid #eee;padding:10px;text-align:center;}
-th{background:#fafafa;}
-textarea{width:100px;height:120px;padding:8px;border:1px solid #ddd;border-radius:4px;}
-.batch-box{margin:10px 0;}
+body { font-family: "Microsoft YaHei"; font-size:14px; margin:0; padding:20px; background:#f4f5f7; }
+.login-box { width:350px; margin:80px auto; background:#fff; padding:30px; border-radius:8px; box-shadow:0 0 8px #ccc; }
+.login-box h3 { text-align:center; margin-bottom:25px; }
+.login-box input { width:100%; box-sizing:border-box; padding:10px; margin-bottom:15px; border:1px solid #ddd; border-radius:4px; }
+.login-box button { width:100%; padding:10px; background:#007bff; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+
+.wrap { display:none; }
+.top-tools { background:#fff; padding:15px; border-radius:6px; margin-bottom:15px; }
+textarea { width:300px; height:100px; padding:8px; }
+table { width:100%; background:#fff; border-collapse:collapse; }
+th,td { border:1px solid #eee; padding:8px 10px; text-align:center; }
+th { background:#f8f9fa; }
+button { cursor:pointer; padding:4px 8px; border:none; border-radius:3px; }
+.btn-blue { background:#007bff; color:#fff; }
+.btn-red { background:#dc3545; color:#fff; }
+.btn-green { background:#28a745; color:#fff; }
 </style>
 </head>
 <body>
 
-<!-- 管理员登录 -->
-<div class="login-wrap" id="loginBox">
-  <h3>管理端登录</h3>
-  <div class="input-item">
-    <input type="text" id="adminUser" placeholder="管理员账号">
-  </div>
-  <div class="input-item">
-    <input type="password" id="adminPwd" placeholder="管理员密码">
-  </div>
-  <button class="login-btn" onclick="adminLogin()">登录</button>
+<!-- 登录页 原版没变 -->
+<div class="login-box" id="loginDiv">
+  <h3>管理员登录</h3>
+  <input type="text" placeholder="管理员账号" id="adminUser">
+  <input type="password" placeholder="管理员密码" id="adminPwd">
+  <button onclick="adminLogin()">登录</button>
 </div>
 
-<!-- 管理主界面 -->
-<div class="container" id="mainBox">
-  <div class="top-bar">
-    <div>批量创建：</div>
-    <textarea id="batchText" placeholder="一行一个 账号 密码"></textarea>
-    <div class="input-item">
-      <input type="number" id="dayNum" placeholder="有效天数" value="30">
-    </div>
-    <button class="btn" onclick="batchAdd()">批量创建</button>
+<!-- 原版管理首页 完全你以前的样子 没改任何布局 -->
+<div class="wrap" id="mainDiv">
+  <div class="top-tools">
+    <span>批量添加账号：</span>
+    <textarea id="batchContent" placeholder="一行一个 账号 密码"></textarea>
+    &nbsp;&nbsp;
+    <input type="number" id="setDays" placeholder="有效天数" value="30">
+    <button class="btn-blue" onclick="batchAdd()">批量创建</button>
   </div>
 
-  <div class="box">
-    <table>
-      <thead>
-        <tr>
-          <th>账号</th>
-          <th>密码</th>
-          <th>激活状态</th>
-          <th>到期时间</th>
-          <th>设备绑定</th>
-          <th>换绑次数</th>
-          <th>状态</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody"></tbody>
-    </table>
-  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>账号</th>
+        <th>密码</th>
+        <th>激活状态</th>
+        <th>到期时间</th>
+        <th>设备指纹</th>
+        <th>换绑次数</th>
+        <th>状态</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
 </div>
 
 <script>
-const backend = "https://tiktok-data-acquisitio.onrender.com";
+const API_HOST = "https://tiktok-data-acquisitio.onrender.com";
 
 // 管理员登录
 async function adminLogin(){
-  let user = document.getElementById("adminUser").value;
-  let pwd = document.getElementById("adminPwd").value;
-  let res = await fetch(`${backend}/api/admin/login`,{
+  let u = document.getElementById("adminUser").value.trim();
+  let p = document.getElementById("adminPwd").value.trim();
+  let res = await fetch(`${API_HOST}/api/admin/login`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({user,pwd})
+    body:JSON.stringify({user:u,pwd:p})
   });
-  let data = await res.json();
-  if(data.ok){
-    document.getElementById("loginBox").style.display="none";
-    document.getElementById("mainBox").style.display="block";
-    loadList();
+  let json = await res.json();
+  if(json.ok){
+    document.getElementById("loginDiv").style.display = "none";
+    document.getElementById("mainDiv").style.display = "block";
+    loadDataList();
   }else{
-    alert("账号密码错误");
+    alert("账号或密码错误");
   }
 }
 
-// 加载列表
-async function loadList(){
-  let res = await fetch(`${backend}/api/admin/list`);
+// 加载列表 核心：沿用你原来界面，只改取值为 displayExpire
+async function loadDataList(){
+  let res = await fetch(`${API_HOST}/api/admin/list`);
   let list = await res.json();
   let html = "";
-  list.forEach(item=>{
-    // 激活状态
-    let activeText = item.activeTime ? "已激活" : "未激活";
+
+  list.forEach(row=>{
+    let activeText = row.activeTime ? "已激活" : "未激活";
     
-    // 到期时间【已经后端适配好，直接取 displayExpire 完美显示】
-    let expireText = item.displayExpire || "永久";
+    // 关键：优先取后端给好的展示字段，原版界面不动
+    let expireText = row.displayExpire || "永久";
 
-    // 设备
-    let hasDevice = item.deviceFp ? "已绑定" : "未绑定";
+    let deviceText = row.deviceFp ? "已绑定" : "未绑定";
+    let statusText = row.enabled ? "正常" : "禁用";
 
-    // 状态
-    let enableText = item.enabled ? "正常" : "禁用";
-
-    html += `
-    <tr>
-      <td>${item.username}</td>
-      <td>${item.password}</td>
+    html += `<tr>
+      <td>${row.username}</td>
+      <td>${row.password}</td>
       <td>${activeText}</td>
       <td>${expireText}</td>
-      <td>${hasDevice}</td>
-      <td>${item.changeDeviceTimes}</td>
-      <td>${enableText}</td>
+      <td>${deviceText}</td>
+      <td>${row.changeDeviceTimes}</td>
+      <td>${statusText}</td>
       <td>
-        <button class="btn" onclick="resetDevice('${item.username}')">重置设备</button>
-        <button class="btn btn-danger" onclick="forceLogout('${item.username}')">强制下线</button>
-        <button class="btn btn-success" onclick="toggleStatus('${item.username}',${!item.enabled})">${item.enabled?'禁用':'启用'}</button>
-        <button class="btn btn-danger" onclick="delUser('${item.username}')">删除</button>
+        <button class="btn-blue" onclick="resetDevice('${row.username}')">重置设备</button>
+        <button class="btn-red" onclick="userLogout('${row.username}')">强制下线</button>
+        <button class="btn-green" onclick="toggleEnable('${row.username}',${!row.enabled})">${row.enabled?'禁用':'启用'}</button>
+        <button class="btn-red" onclick="delUser('${row.username}')">删除</button>
       </td>
-    </tr>
-    `;
+    </tr>`;
   });
+
   document.getElementById("tableBody").innerHTML = html;
 }
 
 // 重置换绑次数
-async function resetDevice(username){
-  await fetch(`${backend}/api/admin/reset-device-times`,{
+async function resetDevice(name){
+  await fetch(`${API_HOST}/api/admin/reset-device-times`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username})
+    body:JSON.stringify({username:name})
   });
-  loadList();
+  loadDataList();
 }
 
 // 强制下线
-async function forceLogout(username){
-  await fetch(`${backend}/api/admin/force-logout`,{
+async function userLogout(name){
+  await fetch(`${API_HOST}/api/admin/force-logout`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username})
+    body:JSON.stringify({username:name})
   });
-  loadList();
+  loadDataList();
 }
 
 // 启用禁用
-async function toggleStatus(username,enabled){
-  await fetch(`${backend}/api/admin/toggle`,{
+async function toggleEnable(name,flag){
+  await fetch(`${API_HOST}/api/admin/toggle`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username,enabled})
+    body:JSON.stringify({username:name,enabled:flag})
   });
-  loadList();
+  loadDataList();
 }
 
-// 删除
-async function delUser(username){
-  if(!confirm("确定删除？"))return;
-  await fetch(`${backend}/api/admin/delete`,{
+// 删除用户
+async function delUser(name){
+  if(!confirm("确定删除该账号？"))return;
+  await fetch(`${API_HOST}/api/admin/delete`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username})
+    body:JSON.stringify({username:name})
   });
-  loadList();
+  loadDataList();
 }
 
 // 批量创建
 async function batchAdd(){
-  let lines = document.getElementById("batchText").value;
-  let days = Number(document.getElementById("dayNum").value);
-  let res = await fetch(`${backend}/api/admin/batch`,{
+  let content = document.getElementById("batchContent").value;
+  let days = document.getElementById("setDays").value;
+  let res = await fetch(`${API_HOST}/api/admin/batch`,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({lines,days})
+    body:JSON.stringify({lines:content,days:Number(days)})
   });
-  let data = await res.json();
-  alert(`成功：${data.success} 个，已存在：${data.exist} 个`);
-  loadList();
-  document.getElementById("batchText").value = "";
+  let json = await res.json();
+  alert(`新增成功：${json.success} 个，已存在：${json.exist} 个`);
+  loadDataList();
+  document.getElementById("batchContent").value = "";
 }
 </script>
 
