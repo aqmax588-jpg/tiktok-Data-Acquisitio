@@ -35,14 +35,15 @@ app.get('/get-avatar', async (req, res) => {
           'Accept-Language': 'en-US,en;q=0.9',
           'Referer': 'https://www.tiktok.com/'
         },
-        timeout: 12000
+        timeout: 15000
       });
 
-      const avatarMatch = data.match(/"avatarThumb":"(.*?)"/);
-      const nicknameMatch = data.match(/"nickname":"(.*?)"/);
-      const followerMatch = data.match(/"followerCount":(\d+)/);
-      const followingMatch = data.match(/"followingCount":(\d+)/);
-      const videoMatch = data.match(/"videoCount":(\d+)/);
+      // 更稳定的正则匹配
+      const avatarMatch = data.match(/avatarThumb":\s*"([^"]+)"/);
+      const nicknameMatch = data.match(/nickname":\s*"([^"]+)"/);
+      const followerMatch = data.match(/followerCount":\s*(\d+)/);
+      const followingMatch = data.match(/followingCount":\s*(\d+)/);
+      const videoMatch = data.match(/videoCount":\s*(\d+)/);
 
       if (avatarMatch && avatarMatch[1]) {
         const avatar = avatarMatch[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
@@ -56,9 +57,11 @@ app.get('/get-avatar', async (req, res) => {
         });
       }
     } catch (e) {
-      await new Promise(r => setTimeout(r, 800));
+      console.error('Attempt', i+1, 'failed:', e.message);
+      await new Promise(r => setTimeout(r, 1500));
     }
   }
+
   res.status(404).json({ error: 'failed' });
 });
 
