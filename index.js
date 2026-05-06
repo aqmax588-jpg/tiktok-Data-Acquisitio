@@ -160,7 +160,7 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ ok: false });
 });
 
-// 核心：管理员列表 定制到期时间展示
+// 管理员列表（修正：解决Invalid Date问题）
 app.get('/api/admin/list', (req, res) => {
   const db = readDB();
   db.forEach(item=>{
@@ -171,23 +171,18 @@ app.get('/api/admin/list', (req, res) => {
     if(item.days === undefined) item.days = null;
   });
 
-  // 克隆一份用于前台展示，不修改原数据库
+  // 克隆一份数据，只修改用于前端显示的到期时间字段
   const showList = db.map(item => {
     const temp = {...item};
-    // 未激活：显示天数
+    // 核心修正：未激活账号，用days字段生成显示文本，不再修改原expireAt字段
     if(!temp.activeTime){
       if(temp.days && temp.days > 0){
-        temp.expireAt = temp.days + "天";
+        temp.expireAt = `${temp.days}天`;
       }else{
         temp.expireAt = "永久";
       }
-    }else{
-      // 已激活 && 无天数 就是永久
-      if(!temp.days || temp.days <= 0){
-        temp.expireAt = "永久";
-      }
-      // 已激活有日期 正常显示原时间
     }
+    // 已激活账号：保持原日期不变，前端会正常解析显示
     return temp;
   });
 
