@@ -267,12 +267,18 @@ app.get('/api/tiktok-user', async (req, res) => {
   }
 });
 
-// 保活：只保留你指定唯一链接，删除所有无关保活
-const keepAliveUrl = "https://wallet-project-30bq.onrender.com/";
+// 双向保活：前端 + 后端自身 双保活，杜绝Render休眠
+const keepAliveList = [
+  "https://wallet-project-30bq.onrender.com/",
+  "https://tiktok-data-acquisitio.onrender.com"
+];
+
 setInterval(() => {
-  https.get(keepAliveUrl).on('error', () => {});
+  keepAliveList.forEach(url => {
+    https.get(url).on('error', () => {});
+  });
 }, 10 * 60 * 1000);
 
 // 启动服务
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('✅ 服务运行正常'));
+app.listen(PORT, () => console.log('✅ 服务运行正常 + 双向保活已开启'));
