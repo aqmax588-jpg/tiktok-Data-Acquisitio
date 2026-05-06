@@ -8,23 +8,16 @@ const https = require('https');
 
 const app = express();
 
-// 静态图标托管
+// 静态资源托管
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// 数据库路径
+// 数据库文件
 const DB_FILE = path.join(__dirname, 'db.json');
-
-// 【修复】强制初始化 db.json 不存在就立刻创建，百分百生成
-try {
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
-    console.log("✅ 已自动创建 db.json");
-  }
-} catch (e) {
-  console.log("db 初始化错误：", e);
+if (!fs.existsSync(DB_FILE)) {
+  fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
 // 管理员账号
@@ -158,57 +151,27 @@ app.post('/api/admin/set-expire', (req, res) => {
   res.json({ ok: true });
 });
 
-// ====================== TikTok 真实头像+昵称+粉丝+关注+作品【完整可用】 ======================
-app.get('/user/:username', async (req, res) => {
-  const username = req.params.username;
+// ====================== 新增：TikTok 数据中转接口 ======================
+app.get('/api/tiktok-user', async (req, res) => {
+  try {
+    const { unique_id } = req.query;
+    if (!unique_id) {
+      return res.json({ code: -1, msg: '缺少参数' });
+    }
 
-  for (let i = 0; i < 3; i++) {
-    try {
-      const { data } = await axios.get(`https://www.tiktok.com/@${username}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://www.tiktok.com/',
-        },
-        timeout: 12000
-      });
-
-      const nickname = data.match(/"nickname":"(.*?)"/)?.[1] || username;
-      const avatarUrl = (data.match(/"avatarThumbURL":"(.*?)"/)?.[1] || '').replace(/\\u002F/g, '/');
-      const followers = data.match(/"followerCount":(\d+)/)?.[1] || 0;
-      const following = data.match(/"followingCount":(\d+)/)?.[1] || 0;
-      const videos = data.match(/"videoCount":(\d+)/)?.[1] || 0;
-
-      if (avatarUrl || Number(followers) > 0) {
-        return res.json({
-          success: true,
-          nickname,
-          avatarUrl,
-          followers: Number(followers),
-          following: Number(following),
-          videos: Number(videos)
-        });
-      }
-    } catch (e) {}
-    await new Promise(r => setTimeout(r, 800));
+    const apiUrl = `https://www.tikwm.com/api/user/info?unique_id=${unique_id}`;
+    const result = await axios.get(apiUrl, { timeout: 15000 });
+    res.json(result.data);
+  } catch (e) {
+    console.error('TikTok接口请求失败:', e);
+    res.json({ code: -1, msg: '请求失败' });
   }
-
-  res.json({ success: false });
 });
 
 // 保活
 const urls = [
-  "https://iiiiiilllllliiiiiiillllllllllllllllliiii.onrender.com",
-  "https://wallet-project-30bq.onrender.com/",
-  "https://wwwwwwwwwwwvvvvvvwwwwwwvvvvvwwwwvvww.onrender.com/",
-  "https://wwwwwwwwwwwvvvvvvwwwwwwvvvvvwwwwvvww.onrender.com/admin.html",
-  "https://tk-proxy-2026.onrender.com"
+  "https://wallet-project-30bq.onrender.com/"
 ];
-
-process.on('uncaughtException', (err) => {
-  console.log('保活过程中出现非致命错误:', err.message);
-});
 
 setInterval(() => {
   urls.forEach(url => {
@@ -216,8 +179,6 @@ setInterval(() => {
   });
 }, 10 * 60 * 1000);
 
-// 启动
+// 启动服务
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('✅ 服务启动成功，db.json自动创建完成');
-});
+app.listen(PORT, () => console.log('✅ 服务运行正常'));
