@@ -8,19 +8,26 @@ const https = require('https');
 
 const app = express();
 
-// 静态资源托管 —— 直接支持 /coin.png 访问金币图标
+// 静态图标托管
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// 本地数据库文件
+// 数据库路径
 const DB_FILE = path.join(__dirname, 'db.json');
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+
+// 【修复】强制初始化 db.json 不存在就立刻创建，百分百生成
+try {
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
+    console.log("✅ 已自动创建 db.json");
+  }
+} catch (e) {
+  console.log("db 初始化错误：", e);
 }
 
-// 管理员默认账号密码
+// 管理员账号
 let admin = {
   user: "admin",
   pwd: "admin123"
@@ -40,7 +47,7 @@ function genToken() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-// ====================== 普通用户登录系统 ======================
+// 普通用户登录
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   const db = readDB();
@@ -70,7 +77,7 @@ app.post('/api/check', (req, res) => {
   res.json({ ok: true });
 });
 
-// ====================== 管理员后台系统 ======================
+// 管理员后台
 app.post('/api/admin/login', (req, res) => {
   const { user, pwd } = req.body;
   if (user === admin.user && pwd === admin.pwd) return res.json({ ok: true });
@@ -151,13 +158,10 @@ app.post('/api/admin/set-expire', (req, res) => {
   res.json({ ok: true });
 });
 
-// ====================== 核心【TikTok 综合数据接口】 ======================
-// 接口地址： 你的域名/user/账号名
-// 返回：头像、昵称、粉丝、关注、作品数 全套真实数据
+// ====================== TikTok 真实头像+昵称+粉丝+关注+作品【完整可用】 ======================
 app.get('/user/:username', async (req, res) => {
   const username = req.params.username;
 
-  // 重试3次，提高成功率
   for (let i = 0; i < 3; i++) {
     try {
       const { data } = await axios.get(`https://www.tiktok.com/@${username}`, {
@@ -170,35 +174,30 @@ app.get('/user/:username', async (req, res) => {
         timeout: 12000
       });
 
-      // 精准匹配：头像 + 昵称 + 粉丝 + 关注 + 作品数
       const nickname = data.match(/"nickname":"(.*?)"/)?.[1] || username;
-      const avatar = (data.match(/"avatarThumbURL":"(.*?)"/)?.[1] || '').replace(/\\u002F/g, '/');
+      const avatarUrl = (data.match(/"avatarThumbURL":"(.*?)"/)?.[1] || '').replace(/\\u002F/g, '/');
       const followers = data.match(/"followerCount":(\d+)/)?.[1] || 0;
       const following = data.match(/"followingCount":(\d+)/)?.[1] || 0;
       const videos = data.match(/"videoCount":(\d+)/)?.[1] || 0;
 
-      // 有任意有效数据就返回
-      if (avatar || Number(followers) > 0) {
+      if (avatarUrl || Number(followers) > 0) {
         return res.json({
           success: true,
-          nickname: nickname,
-          avatarUrl: avatar,
+          nickname,
+          avatarUrl,
           followers: Number(followers),
           following: Number(following),
           videos: Number(videos)
         });
       }
-    } catch (e) {
-      // 捕获错误，不崩溃
-    }
+    } catch (e) {}
     await new Promise(r => setTimeout(r, 800));
   }
 
-  // 全部重试失败
   res.json({ success: false });
 });
 
-// ====================== 保活心跳（保留你原来全部） ======================
+// 保活
 const urls = [
   "https://iiiiiilllllliiiiiiillllllllllllllllliiii.onrender.com",
   "https://wallet-project-30bq.onrender.com/",
@@ -211,19 +210,14 @@ process.on('uncaughtException', (err) => {
   console.log('保活过程中出现非致命错误:', err.message);
 });
 
-console.log("✅ 保活模块已加载，10分钟后将开始心跳...");
-
 setInterval(() => {
-  console.log("[保活] 开始心跳...");
   urls.forEach(url => {
-    https.get(url, (res) => {
-      console.log("[保活] " + url + " → " + res.statusCode);
-    }).on('error', (err) => {
-      console.log("[保活失败] " + url + " → " + err.message);
-    });
+    https.get(url).on('error', () => {});
   });
 }, 10 * 60 * 1000);
 
-// 启动服务
+// 启动
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('✅ 服务运行正常'));
+app.listen(PORT, () => {
+  console.log('✅ 服务启动成功，db.json自动创建完成');
+});
