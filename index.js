@@ -160,7 +160,7 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ ok: false });
 });
 
-// 管理员列表（修正：解决Invalid Date问题）
+// 管理员列表（修正：解决Invalid Date问题，不破坏前端日期解析）
 app.get('/api/admin/list', (req, res) => {
   const db = readDB();
   db.forEach(item=>{
@@ -171,18 +171,23 @@ app.get('/api/admin/list', (req, res) => {
     if(item.days === undefined) item.days = null;
   });
 
-  // 克隆一份数据，只修改用于前端显示的到期时间字段
+  // 克隆一份数据，只在克隆对象上添加显示用的文本字段，不修改原expireAt
   const showList = db.map(item => {
     const temp = {...item};
-    // 核心修正：未激活账号，用days字段生成显示文本，不再修改原expireAt字段
+    // 给前端单独加一个字段用于显示，不影响原expireAt
     if(!temp.activeTime){
       if(temp.days && temp.days > 0){
-        temp.expireAt = `${temp.days}天`;
+        temp.displayExpire = `${temp.days}天`;
       }else{
-        temp.expireAt = "永久";
+        temp.displayExpire = "永久";
+      }
+    }else{
+      if(temp.expireAt){
+        temp.displayExpire = new Date(temp.expireAt).toLocaleString();
+      }else{
+        temp.displayExpire = "永久";
       }
     }
-    // 已激活账号：保持原日期不变，前端会正常解析显示
     return temp;
   });
 
@@ -263,7 +268,7 @@ app.post('/api/admin/set-expire', (req, res) => {
     user.expireAt = null;
   } else {
     user.days = days;
-    // 已激活直接更新日期，未激活保持空，前台自动显示天数
+    // 已激活直接更新日期，未激活保持空
     if(user.activeTime){
       user.expireAt = new Date(Date.now() + days * 86400 * 1000).toISOString();
     }else{
