@@ -347,19 +347,23 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 【新增】单个测试节点是否被封（已改为10秒超时）
+// 【单个测试 —— 超级兼容版：只要能返回200状态码就判定正常】
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
   let status = "banned";
   try{
-    const testRes = await axios.get(apiUrl,{timeout:10000});
-    if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
-      status = "normal";
-    }
+    // 只要能连通、状态码200 直接判定正常
+    const testRes = await axios.get(apiUrl,{
+      timeout:10000,
+      validateStatus: function (status) {
+        return status >= 200 && status < 300;
+      }
+    });
+    // 只要请求不报错、状态码200 全部算正常
+    status = "normal";
   }catch(e){
     status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
   }
-  // 更新状态
   let list = readPool();
   let item = list.find(x=>x.apiUrl===apiUrl);
   if(item){
@@ -370,16 +374,19 @@ app.post('/api/admin/pool-test-one',async (req,res)=>{
   res.json({ok:true,status});
 });
 
-// 【新增】批量全测（已改为10秒超时）
+// 【批量全测 —— 超级兼容版】
 app.post('/api/admin/pool-test-all',async (req,res)=>{
   let list = readPool();
   for(let item of list){
     let status = "banned";
     try{
-      const testRes = await axios.get(item.apiUrl,{timeout:10000});
-      if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
-        status = "normal";
-      }
+      const testRes = await axios.get(item.apiUrl,{
+        timeout:10000,
+        validateStatus: function (status) {
+          return status >= 200 && status < 300;
+        }
+      });
+      status = "normal";
     }catch(e){
       status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
     }
@@ -394,16 +401,19 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
 let autoCheckInterval = null;
 const AUTO_CHECK_INTERVAL = 60 * 60 * 1000; // 60分钟
 
-// 自动检测执行函数（已改为10秒超时）
+// 自动检测执行函数 —— 超级兼容版
 async function autoCheckPool(){
   let list = readPool();
   for(let item of list){
     let status = "banned";
     try{
-      const testRes = await axios.get(item.apiUrl,{timeout:10000});
-      if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
-        status = "normal";
-      }
+      const testRes = await axios.get(item.apiUrl,{
+        timeout:10000,
+        validateStatus: function (status) {
+          return status >= 200 && status < 300;
+        }
+      });
+      status = "normal";
     }catch(e){
       status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
     }
