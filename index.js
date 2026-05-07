@@ -486,7 +486,8 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
 // 保活
 const keepAliveList = [
   "https://wallet-project-30bq.onrender.com/",
-  "https://tiktok-data-acquisitio.onrender.com"
+  "https://tiktok-data-acquisitio.onrender.com",
+  "https://tiktok-frontend-api-production.up.railway.app" // 新增这行
 ];
 
 setInterval(() => {
