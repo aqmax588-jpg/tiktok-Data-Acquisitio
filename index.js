@@ -20,7 +20,7 @@ if (!fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// 【新增】接口池存储文件
+// 接口池存储文件（新增统计字段）
 const POOL_FILE = path.join(__dirname, 'pool.json');
 if (!fs.existsSync(POOL_FILE)) {
   fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
@@ -30,6 +30,21 @@ if (!fs.existsSync(POOL_FILE)) {
 let admin = {
   user: "admin",
   pwd: "admin123"
+};
+
+// 浏览器伪装请求头 全局统一
+const browserHeaders = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+  'Referer': 'https://www.tiktok.com/',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'sec-ch-ua': '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Windows"',
+  'sec-fetch-site': 'same-origin',
+  'sec-fetch-mode': 'navigate',
+  'sec-fetch-user': '?1',
+  'sec-fetch-dest': 'document'
 };
 
 // 工具函数
@@ -49,9 +64,26 @@ function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// 【新增】接口池工具方法
+// 接口池工具方法
 function readPool(){
-  return JSON.parse(fs.readFileSync(POOL_FILE,'utf8'));
+  let list = JSON.parse(fs.readFileSync(POOL_FILE,'utf8'));
+  // 兼容补全新增统计字段
+  list.forEach(item=>{
+    if(item.todayCount === undefined) item.todayCount = 0;
+    if(item.totalCount === undefined) item.totalCount = 0;
+    if(item.isWorking === undefined) item.isWorking = false;
+    if(item.lastCallTime === undefined) item.lastCallTime = "";
+    if(item.resetDate === undefined) item.resetDate = new Date().toLocaleDateString();
+  });
+  // 每日重置次数
+  const todayDate = new Date().toLocaleDateString();
+  list.forEach(item=>{
+    if(item.resetDate !== todayDate){
+      item.todayCount = 0;
+      item.resetDate = todayDate;
+    }
+  });
+  return list;
 }
 function writePool(list){
   fs.writeFileSync(POOL_FILE, JSON.stringify(list,null,2));
@@ -67,14 +99,12 @@ app.post('/api/login', (req, res) => {
   if (user.password !== password) return res.json({ ok: false, msg: '密码错误' });
   if (!user.enabled) return res.json({ ok: false, msg: '账号已禁用' });
 
-  // 兼容旧字段
   if(user.activeTime === undefined) user.activeTime = null;
   if(user.deviceFp === undefined) user.deviceFp = "";
   if(user.changeDeviceTimes === undefined) user.changeDeviceTimes = 1;
   if(user.sessionId === undefined) user.sessionId = "";
   if(user.days === undefined) user.days = null;
 
-  // 未激活：首次登录才计算到期时间
   if(!user.activeTime){
     user.activeTime = now();
     if(user.days && user.days > 0){
@@ -82,12 +112,10 @@ app.post('/api/login', (req, res) => {
     }
   }
 
-  // 已激活检查过期
   if(user.expireAt && Date.now() > new Date(user.expireAt).getTime()){
     return res.json({ ok: false, msg: '账号已过期' });
   }
 
-  // 设备锁定判断
   if(user.deviceFp && user.deviceFp !== device_fp){
     if(user.changeDeviceTimes <= 0){
       return res.json({ ok: false, msg: '设备已锁定，请联系管理员解锁' });
@@ -97,12 +125,10 @@ app.post('/api/login', (req, res) => {
     }
   }
 
-  // 首次绑定设备
   if(!user.deviceFp){
     user.deviceFp = device_fp;
   }
 
-  // 异地互踢 刷新会话
   const token = genToken();
   const sessionId = genSessionId();
   user.token = token;
@@ -174,7 +200,7 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ ok: false });
 });
 
-// 管理员列表（修正：解决Invalid Date问题，不破坏前端日期解析）
+// 管理员列表
 app.get('/api/admin/list', (req, res) => {
   const db = readDB();
   db.forEach(item=>{
@@ -185,10 +211,8 @@ app.get('/api/admin/list', (req, res) => {
     if(item.days === undefined) item.days = null;
   });
 
-  // 克隆一份数据，只在克隆对象上添加显示用的文本字段，不修改原expireAt
   const showList = db.map(item => {
     const temp = {...item};
-    // 给前端单独加一个字段用于显示，不影响原expireAt
     if(!temp.activeTime){
       if(temp.days && temp.days > 0){
         temp.displayExpire = `${temp.days}天`;
@@ -230,7 +254,7 @@ app.post('/api/admin/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
-// 批量创建账号（只存天数，不生成日期）
+// 批量创建账号
 app.post('/api/admin/batch', (req, res) => {
   const { lines, days } = req.body;
   const db = readDB();
@@ -282,7 +306,6 @@ app.post('/api/admin/set-expire', (req, res) => {
     user.expireAt = null;
   } else {
     user.days = days;
-    // 已激活直接更新日期，未激活保持空
     if(user.activeTime){
       user.expireAt = new Date(Date.now() + days * 86400 * 1000).toISOString();
     }else{
@@ -294,7 +317,7 @@ app.post('/api/admin/set-expire', (req, res) => {
   res.json({ ok: true });
 });
 
-// 【原有老接口 完全保留不动】TikTok中转接口
+// 原有老接口 完全保留
 app.get('/api/tiktok-user', async (req, res) => {
   try {
     const { unique_id } = req.query;
@@ -303,7 +326,10 @@ app.get('/api/tiktok-user', async (req, res) => {
     }
 
     const apiUrl = `https://www.tikwm.com/api/user/info?unique_id=${unique_id}`;
-    const result = await axios.get(apiUrl, { timeout: 15000 });
+    const result = await axios.get(apiUrl, { 
+      timeout: 15000,
+      headers: browserHeaders
+    });
     res.json(result.data);
   } catch (e) {
     console.error('TikTok接口请求失败:', e);
@@ -311,12 +337,12 @@ app.get('/api/tiktok-user', async (req, res) => {
   }
 });
 
-// 【新增】接口池管理接口 - 获取列表
+// 接口池管理 - 获取列表（自带今日/累计次数、工作状态）
 app.get('/api/admin/pool-list',(req,res)=>{
   res.json(readPool());
 });
 
-// 【新增】添加/编辑节点
+// 添加/编辑节点（自动初始化统计字段）
 app.post('/api/admin/pool-save',(req,res)=>{
   let list = readPool();
   const { id, apiUrl, remark } = req.body;
@@ -332,14 +358,19 @@ app.post('/api/admin/pool-save',(req,res)=>{
       apiUrl,
       remark,
       status:"unknown",
-      lastTestTime:""
+      lastTestTime:"",
+      todayCount:0,
+      totalCount:0,
+      isWorking:false,
+      lastCallTime:"",
+      resetDate: new Date().toLocaleDateString()
     });
   }
   writePool(list);
   res.json({ok:true});
 });
 
-// 【新增】删除节点
+// 删除节点
 app.post('/api/admin/pool-del',(req,res)=>{
   let list = readPool();
   list = list.filter(x=>x.id !== req.body.id);
@@ -347,19 +378,18 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 【单个测试 —— 超级兼容版：只要能返回200状态码就判定正常】
+// 单个测试
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
   let status = "banned";
   try{
-    // 只要能连通、状态码200 直接判定正常
     const testRes = await axios.get(apiUrl,{
       timeout:10000,
+      headers: browserHeaders,
       validateStatus: function (status) {
         return status >= 200 && status < 300;
       }
     });
-    // 只要请求不报错、状态码200 全部算正常
     status = "normal";
   }catch(e){
     status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
@@ -374,7 +404,7 @@ app.post('/api/admin/pool-test-one',async (req,res)=>{
   res.json({ok:true,status});
 });
 
-// 【批量全测 —— 超级兼容版】
+// 批量全测
 app.post('/api/admin/pool-test-all',async (req,res)=>{
   let list = readPool();
   for(let item of list){
@@ -382,6 +412,7 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
     try{
       const testRes = await axios.get(item.apiUrl,{
         timeout:10000,
+        headers: browserHeaders,
         validateStatus: function (status) {
           return status >= 200 && status < 300;
         }
@@ -397,11 +428,10 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
   res.json({ok:true});
 });
 
-// 【新增】定时自动检测任务 默认60分钟一次 可后台开关控制
+// 定时自动检测任务
 let autoCheckInterval = null;
-const AUTO_CHECK_INTERVAL = 60 * 60 * 1000; // 60分钟
+const AUTO_CHECK_INTERVAL = 60 * 60 * 1000;
 
-// 自动检测执行函数 —— 超级兼容版
 async function autoCheckPool(){
   let list = readPool();
   for(let item of list){
@@ -409,6 +439,7 @@ async function autoCheckPool(){
     try{
       const testRes = await axios.get(item.apiUrl,{
         timeout:10000,
+        headers: browserHeaders,
         validateStatus: function (status) {
           return status >= 200 && status < 300;
         }
@@ -424,13 +455,12 @@ async function autoCheckPool(){
   console.log("✅ 定时自动检测接口池完成");
 }
 
-// 【新增】开启/关闭定时检测
+// 开启/关闭定时检测
 app.post('/api/admin/set-auto-check',(req,res)=>{
   const {open} = req.body;
   if(open){
     if(autoCheckInterval) clearInterval(autoCheckInterval);
     autoCheckInterval = setInterval(autoCheckPool, AUTO_CHECK_INTERVAL);
-    // 立即执行一次
     autoCheckPool();
   }else{
     if(autoCheckInterval){
@@ -441,31 +471,50 @@ app.post('/api/admin/set-auto-check',(req,res)=>{
   res.json({ok:true});
 });
 
-// 【新增】统一轮换抓取新接口（主入口，自动随机调用可用子IP）
+// 统一轮换抓取接口 + 统计调用次数 + 工作状态
 app.get('/api/tiktok-rotate',async (req,res)=>{
   const {username} = req.query;
   if(!username) return res.json({success:false,msg:"缺少username参数"});
 
   let list = readPool();
-  // 只筛选正常可用节点
   let avail = list.filter(x=>x.status === "normal");
   if(avail.length === 0){
     return res.json({success:false,msg:"暂无可用抓取节点，请后台检查接口池"});
   }
 
-  // 随机选一个
   let randomNode = avail[Math.floor(Math.random()*avail.length)];
+  // 标记工作中、统计次数
+  let idx = list.findIndex(x=>x.id === randomNode.id);
+  if(idx > -1){
+    list[idx].isWorking = true;
+    list[idx].todayCount += 1;
+    list[idx].totalCount += 1;
+    list[idx].lastCallTime = now();
+    writePool(list);
+  }
+
   try{
     const targetUrl = `${randomNode.apiUrl}/get-avatar?username=${username}`;
-    const result = await axios.get(targetUrl,{timeout:10000});
+    const result = await axios.get(targetUrl,{
+      timeout:10000,
+      headers: browserHeaders
+    });
+    // 结束工作
+    let list2 = readPool();
+    let idx2 = list2.findIndex(x=>x.id === randomNode.id);
+    if(idx2 > -1){
+      list2[idx2].isWorking = false;
+    }
+    writePool(list2);
     res.json(result.data);
   }catch(e){
-    // 抓取失败标记为封禁
-    let idx = list.findIndex(x=>x.id === randomNode.id);
-    if(idx>-1){
-      list[idx].status = "banned";
-      writePool(list);
+    let list2 = readPool();
+    let idx2 = list2.findIndex(x=>x.id === randomNode.id);
+    if(idx2 > -1){
+      list2[idx2].status = "banned";
+      list2[idx2].isWorking = false;
     }
+    writePool(list2);
     res.json({success:false,msg:"当前节点抓取失败，已自动标记封禁，请重试"});
   }
 });
