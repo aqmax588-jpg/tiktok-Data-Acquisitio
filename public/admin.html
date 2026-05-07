@@ -80,6 +80,12 @@ button{background:#10b985;color:#fff;border:none;font-weight:bold;cursor:pointer
   max-height: 80vh;
   overflow-y: auto;
 }
+
+/* 接口池状态颜色 */
+.status-normal{color:#10b985;font-weight:bold;}
+.status-timeout{color:#f59e0b;font-weight:bold;}
+.status-banned{color:#ef4444;font-weight:bold;}
+.status-unknown{color:#999;}
 </style>
 </head>
 
@@ -155,11 +161,37 @@ button{background:#10b985;color:#fff;border:none;font-weight:bold;cursor:pointer
     <div id="listWrap"></div>
   </div>
 
+
+  <!-- ====================== 新增：TikTok接口轮换池管理 ====================== -->
+  <div class="box">
+    <h2>TikTok抓取接口池管理</h2>
+    <div class="top-bar">
+      <button class="small-btn btn-green" onclick="showAddPoolModal()">新增接口节点</button>
+      <button class="small-btn btn-blue" onclick="testAllPool()">一键批量检测</button>
+      <button class="small-btn btn-gray" id="autoCheckBtn" onclick="switchAutoCheck()">开启定时自动检测</button>
+    </div>
+    <div id="poolListWrap"></div>
+  </div>
+
+  <!-- 接口池新增/编辑弹窗 -->
+  <div class="modal" id="poolModal">
+    <div class="modal-box">
+      <h3 id="poolModalTitle">新增抓取接口</h3>
+      <input id="poolApiUrl" placeholder="接口地址 例如：https://xxx.onrender.com">
+      <input id="poolRemark" placeholder="备注（随意填写）">
+      <input type="hidden" id="poolEditId">
+      <button onclick="savePoolItem()">保存</button>
+      <button class="gray" onclick="hideAllModal()">取消</button>
+    </div>
+  </div>
+
 </div>
 
 <script>
 let all = [];
 let autoRefreshTimer;
+let poolList = [];
+let autoCheckOn = false;
 
 // 【这里是你的专属后端根地址，已经帮你写死】
 const BASE_API = "https://tiktok-data-acquisitio.onrender.com";
@@ -180,6 +212,7 @@ window.onload = function(){
     document.getElementById('loginBox').style.display = 'none';
     document.getElementById('adminPanel').style.display = 'block';
     startAutoRefresh();
+    loadPoolList();
   }
 }
 
@@ -198,6 +231,7 @@ async function adminLogin() {
       document.getElementById('loginBox').style.display = 'none';
       document.getElementById('adminPanel').style.display = 'block';
       startAutoRefresh();
+      loadPoolList();
     } else {
       alert('登录失败');
     }
@@ -355,7 +389,6 @@ function renderList() {
     const on = u.token ? '在线' : '离线';
     const cn = u.token ? 'online' : 'offline';
     
-    // ========== 只改了这里！！优先用后端传好的展示字段，样式完全不变 ==========
     let exp = "";
     if(u.activeTime){
       exp = u.expireAt ? new Date(u.expireAt).toLocaleString() : '永久';
@@ -412,6 +445,145 @@ async function del(user) {
   });
   loadList();
 }
+
+
+// ====================== 接口池管理JS函数 新增开始 ======================
+async function loadPoolList(){
+  try{
+    let res = await fetch(BASE_API+'/api/admin/pool-list');
+    poolList = await res.json();
+    renderPoolList();
+  }catch(e){}
+}
+
+function showAddPoolModal(){
+  hideAllModal();
+  document.getElementById('poolModalTitle').innerText = '新增抓取接口';
+  document.getElementById('poolApiUrl').value = '';
+  document.getElementById('poolRemark').value = '';
+  document.getElementById('poolEditId').value = '';
+  document.getElementById('poolModal').classList.add('show');
+}
+
+function showEditPoolModal(item){
+  hideAllModal();
+  document.getElementById('poolModalTitle').innerText = '编辑接口';
+  document.getElementById('poolApiUrl').value = item.apiUrl;
+  document.getElementById('poolRemark').value = item.remark;
+  document.getElementById('poolEditId').value = item.id;
+  document.getElementById('poolModal').classList.add('show');
+}
+
+async function savePoolItem(){
+  let id = document.getElementById('poolEditId').value;
+  let apiUrl = document.getElementById('poolApiUrl').value.trim();
+  let remark = document.getElementById('poolRemark').value.trim();
+  if(!apiUrl){alert('请填写接口地址');return;}
+  try{
+    await fetch(BASE_API+'/api/admin/pool-save',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id:id?Number(id):null,apiUrl,remark})
+    });
+    hideAllModal();
+    loadPoolList();
+  }catch(e){alert('保存失败');}
+}
+
+async function delPoolItem(id){
+  if(!confirm('确定删除该节点？'))return;
+  try{
+    await fetch(BASE_API+'/api/admin/pool-del',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id})
+    });
+    loadPoolList();
+  }catch(e){}
+}
+
+async function testSinglePool(apiUrl){
+  try{
+    let res = await fetch(BASE_API+'/api/admin/pool-test-one',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({apiUrl})
+    });
+    let d = await res.json();
+    loadPoolList();
+    if(d.status==='normal') alert('检测通过：正常可用');
+    else if(d.status==='timeout') alert('检测结果：超时');
+    else alert('检测结果：已封禁');
+  }catch(e){alert('检测请求失败');}
+}
+
+async function testAllPool(){
+  if(!confirm('确定批量检测所有节点？'))return;
+  try{
+    await fetch(BASE_API+'/api/admin/pool-test-all',{method:'POST'});
+    alert('批量检测完成');
+    loadPoolList();
+  }catch(e){alert('批量检测失败');}
+}
+
+async function switchAutoCheck(){
+  autoCheckOn = !autoCheckOn;
+  try{
+    await fetch(BASE_API+'/api/admin/set-auto-check',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({open:autoCheckOn})
+    });
+    let btn = document.getElementById('autoCheckBtn');
+    if(autoCheckOn){
+      btn.innerText = '关闭定时自动检测';
+      btn.style.background = '#ef4444';
+      alert('已开启：每60分钟自动检测一次IP状态');
+    }else{
+      btn.innerText = '开启定时自动检测';
+      btn.style.background = '#6b7280';
+      alert('已关闭自动检测');
+    }
+  }catch(e){alert('操作失败');}
+}
+
+function renderPoolList(){
+  let html = `<table class="table">
+    <tr>
+      <th>接口地址</th>
+      <th>备注</th>
+      <th>状态</th>
+      <th>最后检测时间</th>
+      <th>操作</th>
+    </tr>`;
+  if(poolList.length===0){
+    html += '<tr><td colspan="5" style="text-align:center;color:#999;">暂无接口节点，请新增</td></tr>';
+  }
+  for(let item of poolList){
+    let statusText = '';
+    let statusClass = '';
+    if(item.status==='normal'){statusText='正常';statusClass='status-normal';}
+    else if(item.status==='timeout'){statusText='超时';statusClass='status-timeout';}
+    else if(item.status==='banned'){statusText='已封禁';statusClass='status-banned';}
+    else{statusText='未检测';statusClass='status-unknown';}
+
+    html += `<tr>
+      <td style="word-break:break-all">${item.apiUrl}</td>
+      <td>${item.remark||'-'}</td>
+      <td class="${statusClass}">${statusText}</td>
+      <td>${item.lastTestTime?new Date(item.lastTestTime).toLocaleString():'-'}</td>
+      <td>
+        <button class="copy-btn" onclick="testSinglePool('${item.apiUrl}')">检测</button>
+        <button class="reset-btn" onclick="showEditPoolModal(${JSON.stringify(item).replace(/"/g,'&quot;')})">编辑</button>
+        <button class="red" style="padding:4px;font-size:12px" onclick="delPoolItem(${item.id})">删除</button>
+      </td>
+    </tr>`;
+  }
+  html += '</table>';
+  document.getElementById('poolListWrap').innerHTML = html;
+}
+// ====================== 接口池管理JS函数 新增结束 ======================
+
 </script>
 </body>
 </html>
