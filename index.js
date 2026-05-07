@@ -8,43 +8,33 @@ const https = require('https');
 
 const app = express();
 
-// 静态资源托管
 app.use(express.static(path.join(__dirname, 'public')));
-
 app.use(cors());
 app.use(bodyParser.json());
 
-// 数据库文件
+// 数据库
 const DB_FILE = path.join(__dirname, 'db.json');
 if (!fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
-// 接口池存储文件（新增统计字段）
+// 接口池
 const POOL_FILE = path.join(__dirname, 'pool.json');
 if (!fs.existsSync(POOL_FILE)) {
   fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
 }
 
-// 管理员账号
 let admin = {
   user: "admin",
   pwd: "admin123"
 };
 
-// 浏览器伪装请求头 全局统一
+// 全局浏览器伪装请求头
 const browserHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
   'Referer': 'https://www.tiktok.com/',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'sec-ch-ua': '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
-  'sec-ch-ua-mobile': '?0',
-  'sec-ch-ua-platform': '"Windows"',
-  'sec-fetch-site': 'same-origin',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-user': '?1',
-  'sec-fetch-dest': 'document'
+  'Accept-Language': 'en-US,en;q=0.9'
 };
 
 // 工具函数
@@ -64,23 +54,20 @@ function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// 接口池工具方法
+// 接口池 兼容补字段 + 每日重置次数
 function readPool(){
   let list = JSON.parse(fs.readFileSync(POOL_FILE,'utf8'));
-  // 兼容补全新增统计字段
+  const today = new Date().toLocaleDateString();
   list.forEach(item=>{
     if(item.todayCount === undefined) item.todayCount = 0;
     if(item.totalCount === undefined) item.totalCount = 0;
     if(item.isWorking === undefined) item.isWorking = false;
     if(item.lastCallTime === undefined) item.lastCallTime = "";
-    if(item.resetDate === undefined) item.resetDate = new Date().toLocaleDateString();
-  });
-  // 每日重置次数
-  const todayDate = new Date().toLocaleDateString();
-  list.forEach(item=>{
-    if(item.resetDate !== todayDate){
+    if(item.resetDate === undefined) item.resetDate = today;
+    // 每日清零
+    if(item.resetDate !== today){
       item.todayCount = 0;
-      item.resetDate = todayDate;
+      item.resetDate = today;
     }
   });
   return list;
@@ -89,7 +76,7 @@ function writePool(list){
   fs.writeFileSync(POOL_FILE, JSON.stringify(list,null,2));
 }
 
-// 登录接口
+// 登录
 app.post('/api/login', (req, res) => {
   const { username, password, device_fp } = req.body;
   const db = readDB();
@@ -138,7 +125,6 @@ app.post('/api/login', (req, res) => {
   res.json({ ok: true, token, sessionId });
 });
 
-// 原有token校验
 app.post('/api/check', (req, res) => {
   const { username, token } = req.body;
   const db = readDB();
@@ -148,7 +134,6 @@ app.post('/api/check', (req, res) => {
   res.json({ ok: true });
 });
 
-// 前台权限校验
 app.post('/api/check-auth', (req, res) => {
   const { username, device_fp } = req.body;
   const db = readDB();
@@ -169,7 +154,6 @@ app.post('/api/check-auth', (req, res) => {
   return res.json({ code: 0, msg: '验证通过' });
 });
 
-// 管理员-重置换绑次数
 app.post('/api/admin/reset-device-times', (req, res) => {
   const { username } = req.body;
   const db = readDB();
@@ -180,7 +164,6 @@ app.post('/api/admin/reset-device-times', (req, res) => {
   res.json({ ok:true });
 });
 
-// 管理员-强制下线
 app.post('/api/admin/force-logout', (req, res) => {
   const { username } = req.body;
   const db = readDB();
@@ -193,14 +176,12 @@ app.post('/api/admin/force-logout', (req, res) => {
   res.json({ ok:true });
 });
 
-// 管理员登录
 app.post('/api/admin/login', (req, res) => {
   const { user, pwd } = req.body;
   if (user === admin.user && pwd === admin.pwd) return res.json({ ok: true });
   res.json({ ok: false });
 });
 
-// 管理员列表
 app.get('/api/admin/list', (req, res) => {
   const db = readDB();
   db.forEach(item=>{
@@ -214,17 +195,9 @@ app.get('/api/admin/list', (req, res) => {
   const showList = db.map(item => {
     const temp = {...item};
     if(!temp.activeTime){
-      if(temp.days && temp.days > 0){
-        temp.displayExpire = `${temp.days}天`;
-      }else{
-        temp.displayExpire = "永久";
-      }
+      temp.displayExpire = temp.days && temp.days > 0 ? `${temp.days}天` : "永久";
     }else{
-      if(temp.expireAt){
-        temp.displayExpire = new Date(temp.expireAt).toLocaleString();
-      }else{
-        temp.displayExpire = "永久";
-      }
+      temp.displayExpire = temp.expireAt ? new Date(temp.expireAt).toLocaleString() : "永久";
     }
     return temp;
   });
@@ -233,7 +206,6 @@ app.get('/api/admin/list', (req, res) => {
   res.json(showList);
 });
 
-// 删除用户
 app.post('/api/admin/delete', (req, res) => {
   const { username } = req.body;
   let db = readDB().filter(x => x.username !== username);
@@ -241,7 +213,6 @@ app.post('/api/admin/delete', (req, res) => {
   res.json({ ok: true });
 });
 
-// 启用/禁用
 app.post('/api/admin/toggle', (req, res) => {
   const { username, enabled } = req.body;
   const db = readDB();
@@ -254,7 +225,6 @@ app.post('/api/admin/toggle', (req, res) => {
   res.json({ ok: true });
 });
 
-// 批量创建账号
 app.post('/api/admin/batch', (req, res) => {
   const { lines, days } = req.body;
   const db = readDB();
@@ -286,7 +256,6 @@ app.post('/api/admin/batch', (req, res) => {
   res.json({ ok: true, success, exist });
 });
 
-// 修改管理员密码
 app.post('/api/admin/set-user-pwd', (req, res) => {
   const { newUser, newPwd } = req.body;
   if (newUser) admin.user = newUser;
@@ -294,7 +263,6 @@ app.post('/api/admin/set-user-pwd', (req, res) => {
   res.json({ ok: true });
 });
 
-// 单独设置有效期
 app.post('/api/admin/set-expire', (req, res) => {
   const { username, days } = req.body;
   const db = readDB();
@@ -317,7 +285,6 @@ app.post('/api/admin/set-expire', (req, res) => {
   res.json({ ok: true });
 });
 
-// 原有老接口 完全保留
 app.get('/api/tiktok-user', async (req, res) => {
   try {
     const { unique_id } = req.query;
@@ -332,17 +299,16 @@ app.get('/api/tiktok-user', async (req, res) => {
     });
     res.json(result.data);
   } catch (e) {
-    console.error('TikTok接口请求失败:', e);
     res.json({ code: -1, msg: '请求失败' });
   }
 });
 
-// 接口池管理 - 获取列表（自带今日/累计次数、工作状态）
+// 接口池列表
 app.get('/api/admin/pool-list',(req,res)=>{
   res.json(readPool());
 });
 
-// 添加/编辑节点（自动初始化统计字段）
+// 添加编辑节点
 app.post('/api/admin/pool-save',(req,res)=>{
   let list = readPool();
   const { id, apiUrl, remark } = req.body;
@@ -357,7 +323,7 @@ app.post('/api/admin/pool-save',(req,res)=>{
       id: Date.now(),
       apiUrl,
       remark,
-      status:"unknown",
+      status:"normal",
       lastTestTime:"",
       todayCount:0,
       totalCount:0,
@@ -378,21 +344,18 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 单个测试
+// 单个测试【修复：不随便误封，只要能连通就正常】
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
-  let status = "banned";
+  let status = "normal";
   try{
-    const testRes = await axios.get(apiUrl,{
-      timeout:10000,
+    await axios.get(apiUrl,{
+      timeout:8000,
       headers: browserHeaders,
-      validateStatus: function (status) {
-        return status >= 200 && status < 300;
-      }
+      validateStatus: () => true
     });
-    status = "normal";
   }catch(e){
-    status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
+    status = "banned";
   }
   let list = readPool();
   let item = list.find(x=>x.apiUrl===apiUrl);
@@ -404,22 +367,19 @@ app.post('/api/admin/pool-test-one',async (req,res)=>{
   res.json({ok:true,status});
 });
 
-// 批量全测
+// 批量测试
 app.post('/api/admin/pool-test-all',async (req,res)=>{
   let list = readPool();
   for(let item of list){
-    let status = "banned";
+    let status = "normal";
     try{
-      const testRes = await axios.get(item.apiUrl,{
-        timeout:10000,
+      await axios.get(item.apiUrl,{
+        timeout:8000,
         headers: browserHeaders,
-        validateStatus: function (status) {
-          return status >= 200 && status < 300;
-        }
+        validateStatus: () => true
       });
-      status = "normal";
     }catch(e){
-      status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
+      status = "banned";
     }
     item.status = status;
     item.lastTestTime = now();
@@ -428,25 +388,22 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
   res.json({ok:true});
 });
 
-// 定时自动检测任务
+// 自动检测
 let autoCheckInterval = null;
 const AUTO_CHECK_INTERVAL = 60 * 60 * 1000;
 
 async function autoCheckPool(){
   let list = readPool();
   for(let item of list){
-    let status = "banned";
+    let status = "normal";
     try{
-      const testRes = await axios.get(item.apiUrl,{
-        timeout:10000,
+      await axios.get(item.apiUrl,{
+        timeout:8000,
         headers: browserHeaders,
-        validateStatus: function (status) {
-          return status >= 200 && status < 300;
-        }
+        validateStatus: () => true
       });
-      status = "normal";
     }catch(e){
-      status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
+      status = "banned";
     }
     item.status = status;
     item.lastTestTime = now();
@@ -455,7 +412,6 @@ async function autoCheckPool(){
   console.log("✅ 定时自动检测接口池完成");
 }
 
-// 开启/关闭定时检测
 app.post('/api/admin/set-auto-check',(req,res)=>{
   const {open} = req.body;
   if(open){
@@ -471,7 +427,7 @@ app.post('/api/admin/set-auto-check',(req,res)=>{
   res.json({ok:true});
 });
 
-// 统一轮换抓取接口 + 统计调用次数 + 工作状态
+// 轮换接口 + 统计今日/累计 + 工作状态
 app.get('/api/tiktok-rotate',async (req,res)=>{
   const {username} = req.query;
   if(!username) return res.json({success:false,msg:"缺少username参数"});
@@ -483,7 +439,6 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
   }
 
   let randomNode = avail[Math.floor(Math.random()*avail.length)];
-  // 标记工作中、统计次数
   let idx = list.findIndex(x=>x.id === randomNode.id);
   if(idx > -1){
     list[idx].isWorking = true;
@@ -499,7 +454,6 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
       timeout:10000,
       headers: browserHeaders
     });
-    // 结束工作
     let list2 = readPool();
     let idx2 = list2.findIndex(x=>x.id === randomNode.id);
     if(idx2 > -1){
@@ -519,7 +473,7 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
   }
 });
 
-// 双向保活
+// 保活
 const keepAliveList = [
   "https://wallet-project-30bq.onrender.com/",
   "https://tiktok-data-acquisitio.onrender.com"
