@@ -347,17 +347,17 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 【新增】单个测试节点是否被封
+// 【新增】单个测试节点是否被封（已改为10秒超时）
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
   let status = "banned";
   try{
-    const testRes = await axios.get(apiUrl,{timeout:3000});
-    if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+    const testRes = await axios.get(apiUrl,{timeout:10000});
+    if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
       status = "normal";
     }
   }catch(e){
-    status = "timeout";
+    status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
   }
   // 更新状态
   let list = readPool();
@@ -370,18 +370,18 @@ app.post('/api/admin/pool-test-one',async (req,res)=>{
   res.json({ok:true,status});
 });
 
-// 【新增】批量全测
+// 【新增】批量全测（已改为10秒超时）
 app.post('/api/admin/pool-test-all',async (req,res)=>{
   let list = readPool();
   for(let item of list){
     let status = "banned";
     try{
-      const testRes = await axios.get(item.apiUrl,{timeout:3000});
-      if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+      const testRes = await axios.get(item.apiUrl,{timeout:10000});
+      if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
         status = "normal";
       }
     }catch(e){
-      status = "timeout";
+      status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
     }
     item.status = status;
     item.lastTestTime = now();
@@ -394,18 +394,18 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
 let autoCheckInterval = null;
 const AUTO_CHECK_INTERVAL = 60 * 60 * 1000; // 60分钟
 
-// 自动检测执行函数
+// 自动检测执行函数（已改为10秒超时）
 async function autoCheckPool(){
   let list = readPool();
   for(let item of list){
     let status = "banned";
     try{
-      const testRes = await axios.get(item.apiUrl,{timeout:3000});
-      if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+      const testRes = await axios.get(item.apiUrl,{timeout:10000});
+      if(testRes.data && (testRes.data.success || testRes.data.nickname || testRes.data.code === 0)){
         status = "normal";
       }
     }catch(e){
-      status = "timeout";
+      status = e.code === 'ECONNABORTED' ? "timeout" : "banned";
     }
     item.status = status;
     item.lastTestTime = now();
@@ -447,7 +447,7 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
   let randomNode = avail[Math.floor(Math.random()*avail.length)];
   try{
     const targetUrl = `${randomNode.apiUrl}/get-avatar?username=${username}`;
-    const result = await axios.get(targetUrl,{timeout:8000});
+    const result = await axios.get(targetUrl,{timeout:10000});
     res.json(result.data);
   }catch(e){
     // 抓取失败标记为封禁
