@@ -20,6 +20,12 @@ if (!fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
 }
 
+// 【新增】接口池存储文件
+const POOL_FILE = path.join(__dirname, 'pool.json');
+if (!fs.existsSync(POOL_FILE)) {
+  fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
+}
+
 // 管理员账号
 let admin = {
   user: "admin",
@@ -41,6 +47,14 @@ function genToken() {
 }
 function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+// 【新增】接口池工具方法
+function readPool(){
+  return JSON.parse(fs.readFileSync(POOL_FILE,'utf8'));
+}
+function writePool(list){
+  fs.writeFileSync(POOL_FILE, JSON.stringify(list,null,2));
 }
 
 // 登录接口
@@ -280,7 +294,7 @@ app.post('/api/admin/set-expire', (req, res) => {
   res.json({ ok: true });
 });
 
-// TikTok中转接口
+// 【原有老接口 完全保留不动】TikTok中转接口
 app.get('/api/tiktok-user', async (req, res) => {
   try {
     const { unique_id } = req.query;
@@ -294,6 +308,155 @@ app.get('/api/tiktok-user', async (req, res) => {
   } catch (e) {
     console.error('TikTok接口请求失败:', e);
     res.json({ code: -1, msg: '请求失败' });
+  }
+});
+
+// 【新增】接口池管理接口 - 获取列表
+app.get('/api/admin/pool-list',(req,res)=>{
+  res.json(readPool());
+});
+
+// 【新增】添加/编辑节点
+app.post('/api/admin/pool-save',(req,res)=>{
+  let list = readPool();
+  const { id, apiUrl, remark } = req.body;
+  if(id){
+    let item = list.find(x=>x.id===id);
+    if(item){
+      item.apiUrl = apiUrl;
+      item.remark = remark;
+    }
+  }else{
+    list.push({
+      id: Date.now(),
+      apiUrl,
+      remark,
+      status:"unknown",
+      lastTestTime:""
+    });
+  }
+  writePool(list);
+  res.json({ok:true});
+});
+
+// 【新增】删除节点
+app.post('/api/admin/pool-del',(req,res)=>{
+  let list = readPool();
+  list = list.filter(x=>x.id !== req.body.id);
+  writePool(list);
+  res.json({ok:true});
+});
+
+// 【新增】单个测试节点是否被封
+app.post('/api/admin/pool-test-one',async (req,res)=>{
+  const {apiUrl} = req.body;
+  let status = "banned";
+  try{
+    const testRes = await axios.get(apiUrl,{timeout:3000});
+    if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+      status = "normal";
+    }
+  }catch(e){
+    status = "timeout";
+  }
+  // 更新状态
+  let list = readPool();
+  let item = list.find(x=>x.apiUrl===apiUrl);
+  if(item){
+    item.status = status;
+    item.lastTestTime = now();
+  }
+  writePool(list);
+  res.json({ok:true,status});
+});
+
+// 【新增】批量全测
+app.post('/api/admin/pool-test-all',async (req,res)=>{
+  let list = readPool();
+  for(let item of list){
+    let status = "banned";
+    try{
+      const testRes = await axios.get(item.apiUrl,{timeout:3000});
+      if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+        status = "normal";
+      }
+    }catch(e){
+      status = "timeout";
+    }
+    item.status = status;
+    item.lastTestTime = now();
+  }
+  writePool(list);
+  res.json({ok:true});
+});
+
+// 【新增】定时自动检测任务 默认60分钟一次 可后台开关控制
+let autoCheckInterval = null;
+const AUTO_CHECK_INTERVAL = 60 * 60 * 1000; // 60分钟
+
+// 自动检测执行函数
+async function autoCheckPool(){
+  let list = readPool();
+  for(let item of list){
+    let status = "banned";
+    try{
+      const testRes = await axios.get(item.apiUrl,{timeout:3000});
+      if(testRes.data && (testRes.data.success || testRes.data.nickname)){
+        status = "normal";
+      }
+    }catch(e){
+      status = "timeout";
+    }
+    item.status = status;
+    item.lastTestTime = now();
+  }
+  writePool(list);
+  console.log("✅ 定时自动检测接口池完成");
+}
+
+// 【新增】开启/关闭定时检测
+app.post('/api/admin/set-auto-check',(req,res)=>{
+  const {open} = req.body;
+  if(open){
+    if(autoCheckInterval) clearInterval(autoCheckInterval);
+    autoCheckInterval = setInterval(autoCheckPool, AUTO_CHECK_INTERVAL);
+    // 立即执行一次
+    autoCheckPool();
+  }else{
+    if(autoCheckInterval){
+      clearInterval(autoCheckInterval);
+      autoCheckInterval = null;
+    }
+  }
+  res.json({ok:true});
+});
+
+// 【新增】统一轮换抓取新接口（主入口，自动随机调用可用子IP）
+app.get('/api/tiktok-rotate',async (req,res)=>{
+  const {username} = req.query;
+  if(!username) return res.json({success:false,msg:"缺少username参数"});
+
+  let list = readPool();
+  // 只筛选正常可用节点
+  let avail = list.filter(x=>x.status === "normal");
+  if(avail.length === 0){
+    return res.json({success:false,msg:"暂无可用抓取节点，请后台检查接口池"});
+  }
+
+  // 随机选一个
+  let randomNode = avail[Math.floor(Math.random()*avail.length)];
+  try{
+    const targetUrl = `${randomNode.apiUrl}/get-avatar?username=${username}`;
+    const result = await axios.get(targetUrl,{timeout:8000});
+    res.json(result.data);
+  }catch(e){
+    // 抓取失败标记为封禁
+    let idx = list.findIndex(x=>x.id === randomNode.id);
+    if(idx>-1){
+      list[idx].status = "banned";
+      writePool(list);
+    }
+    res.json({success:false,msg:"当前节点抓取失败，已自动标记封禁，请重试"});
   }
 });
 
