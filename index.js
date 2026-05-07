@@ -14,15 +14,16 @@ app.use(bodyParser.json());
 
 // 数据库
 const DB_FILE = path.join(__dirname, 'db.json');
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2));
-}
-
-// 接口池
 const POOL_FILE = path.join(__dirname, 'pool.json');
-if (!fs.existsSync(POOL_FILE)) {
-  fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
+
+// 不存在就自动创建空文件
+function initFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify([], null, 2));
+  }
 }
+initFile(DB_FILE);
+initFile(POOL_FILE);
 
 let admin = {
   user: "admin",
@@ -54,17 +55,26 @@ function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// 接口池 兼容补字段 + 每日重置次数
+// 接口池 自动建文件 + 自动补全所有统计字段 + 每日重置
 function readPool(){
+  // 兜底再判断一次，防止文件丢失
+  if (!fs.existsSync(POOL_FILE)) {
+    fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
+  }
   let list = JSON.parse(fs.readFileSync(POOL_FILE,'utf8'));
   const today = new Date().toLocaleDateString();
+  
   list.forEach(item=>{
+    // 缺失字段全部自动补上默认值
     if(item.todayCount === undefined) item.todayCount = 0;
     if(item.totalCount === undefined) item.totalCount = 0;
     if(item.isWorking === undefined) item.isWorking = false;
     if(item.lastCallTime === undefined) item.lastCallTime = "";
     if(item.resetDate === undefined) item.resetDate = today;
-    // 每日清零
+    if(item.status === undefined) item.status = "normal";
+    if(item.lastTestTime === undefined) item.lastTestTime = "";
+
+    // 每日清零今日调用次数
     if(item.resetDate !== today){
       item.todayCount = 0;
       item.resetDate = today;
@@ -308,7 +318,7 @@ app.get('/api/admin/pool-list',(req,res)=>{
   res.json(readPool());
 });
 
-// 添加编辑节点
+// 添加编辑节点 自带全部统计字段
 app.post('/api/admin/pool-save',(req,res)=>{
   let list = readPool();
   const { id, apiUrl, remark } = req.body;
@@ -344,7 +354,7 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 单个测试【修复：不随便误封，只要能连通就正常】
+// 单个测试
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
   let status = "normal";
@@ -427,7 +437,7 @@ app.post('/api/admin/set-auto-check',(req,res)=>{
   res.json({ok:true});
 });
 
-// 轮换接口 + 统计今日/累计 + 工作状态
+// 轮换接口 + 统计今日/累计调用 + 工作状态
 app.get('/api/tiktok-rotate',async (req,res)=>{
   const {username} = req.query;
   if(!username) return res.json({success:false,msg:"缺少username参数"});
