@@ -86,6 +86,8 @@ button{background:#10b985;color:#fff;border:none;font-weight:bold;cursor:pointer
 .status-timeout{color:#f59e0b;font-weight:bold;}
 .status-banned{color:#ef4444;font-weight:bold;}
 .status-unknown{color:#999;}
+.working-yes{color:#3b82f6;font-weight:bold;}
+.working-no{color:#999;font-weight:bold;}
 </style>
 </head>
 
@@ -553,11 +555,14 @@ function renderPoolList(){
       <th>接口地址</th>
       <th>备注</th>
       <th>状态</th>
+      <th>今日调用</th>
+      <th>累计调用</th>
+      <th>工作状态</th>
       <th>最后检测时间</th>
       <th>操作</th>
     </tr>`;
   if(poolList.length===0){
-    html += '<tr><td colspan="5" style="text-align:center;color:#999;">暂无接口节点，请新增</td></tr>';
+    html += '<tr><td colspan="8" style="text-align:center;color:#999;">暂无接口节点，请新增</td></tr>';
   }
   for(let item of poolList){
     let statusText = '';
@@ -567,10 +572,16 @@ function renderPoolList(){
     else if(item.status==='banned'){statusText='已封禁';statusClass='status-banned';}
     else{statusText='未检测';statusClass='status-unknown';}
 
+    let workText = item.isWorking ? '抓取中' : '空闲';
+    let workClass = item.isWorking ? 'working-yes' : 'working-no';
+
     html += `<tr>
       <td style="word-break:break-all">${item.apiUrl}</td>
       <td>${item.remark||'-'}</td>
       <td class="${statusClass}">${statusText}</td>
+      <td>${item.todayCount||0}</td>
+      <td>${item.totalCount||0}</td>
+      <td class="${workClass}">${workText}</td>
       <td>${item.lastTestTime?new Date(item.lastTestTime).toLocaleString():'-'}</td>
       <td>
         <button class="copy-btn" onclick="testSinglePool('${item.apiUrl}')">检测</button>
