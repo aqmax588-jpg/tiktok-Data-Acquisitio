@@ -12,11 +12,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(cors());
 app.use(bodyParser.json());
 
-// 数据库 & 接口池文件
+// 初始化文件
 const DB_FILE = path.join(__dirname, 'db.json');
 const POOL_FILE = path.join(__dirname, 'pool.json');
-
-// 不存在自动创建空文件
 function initFile(filePath) {
   if (!fs.existsSync(filePath)) {
     fs.writeFileSync(filePath, JSON.stringify([], null, 2));
@@ -25,12 +23,7 @@ function initFile(filePath) {
 initFile(DB_FILE);
 initFile(POOL_FILE);
 
-let admin = {
-  user: "admin",
-  pwd: "admin123"
-};
-
-// 浏览器伪装头
+let admin = { user: "admin", pwd: "admin123" };
 const browserHeaders = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
   'Accept': '*/*',
@@ -54,7 +47,7 @@ function genSessionId(){
   return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// 接口池 自动补全所有字段 + 每日重置
+// 接口池管理
 function readPool(){
   if (!fs.existsSync(POOL_FILE)) {
     fs.writeFileSync(POOL_FILE, JSON.stringify([], null, 2));
@@ -71,7 +64,6 @@ function readPool(){
     if(item.status === undefined) item.status = "normal";
     if(item.lastTestTime === undefined) item.lastTestTime = "";
 
-    // 跨天清空今日次数
     if(item.resetDate !== today){
       item.todayCount = 0;
       item.resetDate = today;
@@ -83,17 +75,15 @@ function writePool(list){
   fs.writeFileSync(POOL_FILE, JSON.stringify(list,null,2));
 }
 
-// ========== 下面用户登录接口全部保留不动 ==========
+// ========== 用户管理接口 ==========
 app.post('/api/admin/login', (req, res) => {
   const { user, pwd } = req.body;
-  const db = readDB();
   if (user !== admin.user || pwd !== admin.pwd) {
     return res.json({ ok: false });
   }
   res.json({ ok: true });
 });
 
-// 省略一堆你原有用户管理接口 保留原样不动
 app.get('/api/admin/list', (req, res) => {
   let db = readDB();
   db.forEach(item=>{
@@ -222,7 +212,7 @@ app.get('/api/admin/pool-list',(req,res)=>{
 app.post('/api/admin/pool-save',(req,res)=>{
   let list = readPool();
   const { id, apiUrl, remark } = req.body;
-  if(id){
+  if(id && id !== null){
     let item = list.find(x=>x.id===id);
     if(item){
       item.apiUrl = apiUrl;
@@ -253,7 +243,6 @@ app.post('/api/admin/pool-del',(req,res)=>{
   res.json({ok:true});
 });
 
-// 单个检测
 app.post('/api/admin/pool-test-one',async (req,res)=>{
   const {apiUrl} = req.body;
   let status = "normal";
@@ -276,7 +265,6 @@ app.post('/api/admin/pool-test-one',async (req,res)=>{
   res.json({ok:true,status});
 });
 
-// 批量检测
 app.post('/api/admin/pool-test-all',async (req,res)=>{
   let list = readPool();
   for(let item of list){
@@ -297,7 +285,6 @@ app.post('/api/admin/pool-test-all',async (req,res)=>{
   res.json({ok:true});
 });
 
-// 自动检测开关
 let autoCheckInterval = null;
 const AUTO_CHECK_INTERVAL = 60 * 60 * 1000;
 
@@ -336,23 +323,20 @@ app.post('/api/admin/set-auto-check',(req,res)=>{
   res.json({ok:true});
 });
 
-// ========== 核心：TikTok轮询接口【已修复第三方也计数】 ==========
+// ========== 核心：TikTok轮询接口（第三方也计数） ==========
 app.get('/api/tiktok-rotate',async (req,res)=>{
   const {username} = req.query;
   if(!username) return res.json({success:false,msg:"缺少username参数"});
 
   let list = readPool();
-  // 只拿正常可用的节点
   let avail = list.filter(x=>x.status === "normal");
   if(avail.length === 0){
     return res.json({success:false,msg:"暂无可用抓取节点"});
   }
 
-  // 随机选一个
   let randomNode = avail[Math.floor(Math.random()*avail.length)];
   let idx = list.findIndex(x=>x.id === randomNode.id);
 
-  // ========== 重点：第三方接口也一样计数 + 标记抓取中 ==========
   if(idx > -1){
     list[idx].isWorking = true;
     list[idx].todayCount += 1;
@@ -362,14 +346,12 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
   }
 
   try{
-    // 拼接真实头像请求地址
     const targetUrl = `${randomNode.apiUrl}?username=${username}`;
     const result = await axios.get(targetUrl,{
       timeout:10000,
       headers: browserHeaders
     });
 
-    // 请求成功 恢复空闲
     if(idx > -1){
       list[idx].isWorking = false;
       writePool(list);
@@ -377,7 +359,6 @@ app.get('/api/tiktok-rotate',async (req,res)=>{
 
     res.json(result.data);
   }catch(e){
-    // 请求失败 标记封禁 + 恢复空闲
     if(idx > -1){
       list[idx].status = "banned";
       list[idx].isWorking = false;
